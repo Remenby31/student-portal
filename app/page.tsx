@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
+export const dynamic = 'force-dynamic';
+
 type TerminalPhase = "boot" | "welcome" | "email" | "github" | "website" | "confirm" | "submitting" | "complete";
 
 interface TerminalLine {
