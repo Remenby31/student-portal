@@ -1,20 +1,99 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { toast } from "sonner";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
+type TerminalPhase = "boot" | "welcome" | "email" | "github" | "website" | "confirm" | "submitting" | "complete";
+
+interface TerminalLine {
+  text: string;
+  type: "system" | "prompt" | "input" | "error" | "success";
+}
+
 export default function Home() {
+  const [phase, setPhase] = useState<TerminalPhase>("boot");
+  const [lines, setLines] = useState<TerminalLine[]>([]);
+  const [currentInput, setCurrentInput] = useState("");
   const [formData, setFormData] = useState({
     email: "",
     github_url: "",
     website_url: "",
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [lines]);
+
+  // Auto-focus input
+  useEffect(() => {
+    if (phase !== "boot" && phase !== "welcome" && phase !== "submitting" && phase !== "complete") {
+      inputRef.current?.focus();
+    }
+  }, [phase]);
+
+  // Boot sequence
+  useEffect(() => {
+    if (phase === "boot") {
+      const bootMessages = [
+        "Initializing Student Portal v1.0.0...",
+        "Loading system modules...",
+        "Checking database connection...",
+        "Establishing secure connection to Supabase...",
+        "Security protocols enabled",
+        "System ready.",
+        "",
+      ];
+
+      let index = 0;
+      const bootInterval = setInterval(() => {
+        if (index < bootMessages.length) {
+          setLines((prev) => [...prev, { text: bootMessages[index], type: "system" }]);
+          index++;
+        } else {
+          clearInterval(bootInterval);
+          setTimeout(() => setPhase("welcome"), 500);
+        }
+      }, 300);
+
+      return () => clearInterval(bootInterval);
+    }
+  }, [phase]);
+
+  // Welcome message
+  useEffect(() => {
+    if (phase === "welcome") {
+      const welcomeMessages = [
+        "",
+        "+===============================================+",
+        "|  PORTAIL ÉTUDIANT - SOUMISSION PROJET        |",
+        "|             Version 1.0.0                    |",
+        "+===============================================+",
+        "",
+        "Bienvenue dans le système de soumission de projet.",
+        "Veuillez répondre aux questions suivantes.",
+        "",
+      ];
+
+      let index = 0;
+      const welcomeInterval = setInterval(() => {
+        if (index < welcomeMessages.length) {
+          setLines((prev) => [...prev, { text: welcomeMessages[index], type: "system" }]);
+          index++;
+        } else {
+          clearInterval(welcomeInterval);
+          setTimeout(() => {
+            setLines((prev) => [...prev, { text: "> Entrez votre adresse email:", type: "prompt" }]);
+            setPhase("email");
+          }, 500);
+        }
+      }, 150);
+
+      return () => clearInterval(welcomeInterval);
+    }
+  }, [phase]);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -30,170 +109,232 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && currentInput.trim()) {
+      e.preventDefault();
 
-    // Validation
-    if (!validateEmail(formData.email)) {
-      toast.error("Veuillez entrer une adresse email valide");
-      return;
-    }
+      // Add input to terminal
+      setLines((prev) => [...prev, { text: `$ ${currentInput}`, type: "input" }]);
 
-    if (!validateUrl(formData.github_url)) {
-      toast.error("Veuillez entrer une URL GitHub valide");
-      return;
-    }
-
-    if (!validateUrl(formData.website_url)) {
-      toast.error("Veuillez entrer une URL de site web valide");
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      const { error } = await supabase
-        .from("student_submissions")
-        .insert([
-          {
-            email: formData.email,
-            github_url: formData.github_url,
-            website_url: formData.website_url,
-          },
-        ]);
-
-      if (error) {
-        if (error.code === "23505") {
-          toast.error("Cet email a déjà été soumis");
+      if (phase === "email") {
+        if (validateEmail(currentInput)) {
+          setFormData((prev) => ({ ...prev, email: currentInput }));
+          setLines((prev) => [...prev, { text: "✓ Email valide", type: "success" }]);
+          setLines((prev) => [...prev, { text: "", type: "system" }]);
+          setLines((prev) => [...prev, { text: "> Entrez l'URL de votre repository GitHub:", type: "prompt" }]);
+          setPhase("github");
         } else {
-          toast.error("Une erreur est survenue. Veuillez réessayer.");
+          setLines((prev) => [...prev, { text: "✗ Email invalide. Réessayez:", type: "error" }]);
         }
-        return;
-      }
+        setCurrentInput("");
+      } else if (phase === "github") {
+        if (validateUrl(currentInput)) {
+          setFormData((prev) => ({ ...prev, github_url: currentInput }));
+          setLines((prev) => [...prev, { text: "✓ URL GitHub valide", type: "success" }]);
+          setLines((prev) => [...prev, { text: "", type: "system" }]);
+          setLines((prev) => [...prev, { text: "> Entrez l'URL de votre site web:", type: "prompt" }]);
+          setPhase("website");
+        } else {
+          setLines((prev) => [...prev, { text: "✗ URL invalide. Réessayez:", type: "error" }]);
+        }
+        setCurrentInput("");
+      } else if (phase === "website") {
+        if (validateUrl(currentInput)) {
+          setFormData((prev) => ({ ...prev, website_url: currentInput }));
+          setLines((prev) => [...prev, { text: "✓ URL site web valide", type: "success" }]);
+          setLines((prev) => [...prev, { text: "", type: "system" }]);
+          setLines((prev) => [
+            ...prev,
+            { text: "═══════════════════════════════════════", type: "system" },
+            { text: "RÉCAPITULATIF DES INFORMATIONS", type: "system" },
+            { text: "═══════════════════════════════════════", type: "system" },
+            { text: `Email:        ${formData.email}`, type: "system" },
+            { text: `GitHub:       ${formData.github_url}`, type: "system" },
+            { text: `Site Web:     ${currentInput}`, type: "system" },
+            { text: "═══════════════════════════════════════", type: "system" },
+            { text: "", type: "system" },
+            { text: "> Confirmer la soumission? (oui/non):", type: "prompt" },
+          ]);
+          setPhase("confirm");
+        } else {
+          setLines((prev) => [...prev, { text: "✗ URL invalide. Réessayez:", type: "error" }]);
+        }
+        setCurrentInput("");
+      } else if (phase === "confirm") {
+        const answer = currentInput.toLowerCase();
+        if (answer === "oui" || answer === "o" || answer === "y" || answer === "yes") {
+          setLines((prev) => [...prev, { text: "", type: "system" }]);
+          setLines((prev) => [...prev, { text: "Envoi en cours...", type: "system" }]);
+          setPhase("submitting");
+          setCurrentInput("");
 
-      toast.success("Votre soumission a été enregistrée avec succès!");
-      setFormData({ email: "", github_url: "", website_url: "" });
-    } catch (error) {
-      toast.error("Une erreur est survenue. Veuillez réessayer.");
-    } finally {
-      setIsSubmitting(false);
+          try {
+            const { error } = await supabase.from("student_submissions").insert([formData]);
+
+            if (error) {
+              if (error.code === "23505") {
+                setLines((prev) => [...prev, { text: "✗ ERREUR: Cet email a déjà été soumis", type: "error" }]);
+              } else {
+                setLines((prev) => [...prev, { text: "✗ ERREUR: Une erreur est survenue", type: "error" }]);
+              }
+              setLines((prev) => [...prev, { text: "", type: "system" }]);
+              setLines((prev) => [...prev, { text: "Appuyez sur Enter pour recommencer...", type: "prompt" }]);
+              setPhase("complete");
+            } else {
+              setLines((prev) => [
+                ...prev,
+                { text: "✓ Soumission réussie!", type: "success" },
+                { text: "", type: "system" },
+                { text: "Votre projet a été enregistré avec succès.", type: "system" },
+                { text: "Merci d'avoir utilisé le portail étudiant.", type: "system" },
+                { text: "", type: "system" },
+              ]);
+
+              // Hack animation
+              setTimeout(() => {
+                const hackMessages = [
+                  "AVERTISSEMENT: Activité suspecte détectée...",
+                  "Scanning system files...",
+                  "ACCESS DENIED",
+                  ">>> Intrusion detected <<<",
+                  "FIREWALL BREACH ATTEMPT",
+                  "System override initiated...",
+                  "4cC3$$ Gr4nT3D",
+                  "01001000 01000001 01000011 01001011",
+                  "Matrix breach in progress...",
+                  "Decrypting mainframe...",
+                  "Root access: GRANTED",
+                  "---SYSTEM COMPROMISED---",
+                  "Just kidding! 😎",
+                  "",
+                  "Tout est sous contrôle.",
+                  "Votre soumission est bien sécurisée.",
+                  "",
+                  "Appuyez sur Enter pour soumettre un autre projet...",
+                ];
+
+                let hackIndex = 0;
+                const hackInterval = setInterval(() => {
+                  if (hackIndex < hackMessages.length) {
+                    const msg = hackMessages[hackIndex];
+                    const isGlitch = hackIndex >= 2 && hackIndex <= 11;
+                    setLines((prev) => [
+                      ...prev,
+                      { text: msg, type: isGlitch ? "error" : "system" },
+                    ]);
+                    hackIndex++;
+                  } else {
+                    clearInterval(hackInterval);
+                    setPhase("complete");
+                  }
+                }, hackIndex < 12 ? 200 : 400);
+              }, 1000);
+            }
+          } catch {
+            setLines((prev) => [...prev, { text: "✗ ERREUR: Connexion impossible", type: "error" }]);
+            setPhase("complete");
+          }
+        } else if (answer === "non" || answer === "n" || answer === "no") {
+          setLines((prev) => [...prev, { text: "Soumission annulée.", type: "system" }]);
+          setLines((prev) => [...prev, { text: "", type: "system" }]);
+          setLines((prev) => [...prev, { text: "Appuyez sur Enter pour recommencer...", type: "prompt" }]);
+          setPhase("complete");
+          setCurrentInput("");
+        } else {
+          setLines((prev) => [...prev, { text: "✗ Réponse invalide. Tapez 'oui' ou 'non':", type: "error" }]);
+          setCurrentInput("");
+        }
+      } else if (phase === "complete") {
+        // Reset
+        setLines([]);
+        setFormData({ email: "", github_url: "", website_url: "" });
+        setCurrentInput("");
+        setPhase("boot");
+      }
+    }
+  };
+
+  const getLineColor = (type: string) => {
+    switch (type) {
+      case "error":
+        return "text-destructive";
+      case "success":
+        return "text-primary";
+      case "prompt":
+        return "text-primary font-bold";
+      case "input":
+        return "text-foreground";
+      default:
+        return "text-muted-foreground";
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-background via-background to-card">
-      {/* Background Grid Pattern */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_50%,#000_60%,transparent_100%)]" />
+    <div className="min-h-screen bg-black p-4 sm:p-8">
+      {/* Terminal scanline effect */}
+      <div className="absolute inset-0 pointer-events-none bg-[repeating-linear-gradient(0deg,rgba(111,218,111,0.03)_0px,transparent_1px,transparent_2px,rgba(111,218,111,0.03)_3px)]" />
 
-      <div className="relative z-10 w-full max-w-2xl space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center justify-center p-2 bg-primary/10 rounded-lg mb-4">
-            <svg
-              className="w-10 h-10 text-primary"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
+      <div className="relative z-10 max-w-4xl mx-auto">
+        <div className="border-2 border-primary bg-black p-6 min-h-[600px] max-h-[80vh] overflow-y-auto">
+          {/* Terminal output */}
+          <div className="space-y-1 font-mono text-sm">
+            {lines.map((line, index) => (
+              <div key={index} className={getLineColor(line.type)} style={{ whiteSpace: 'pre' }}>
+                {line.text || '\u00A0'}
+              </div>
+            ))}
+
+            {/* Current input line */}
+            {phase !== "boot" && phase !== "welcome" && phase !== "submitting" && phase !== "complete" && (
+              <div className="flex items-center gap-2 text-primary">
+                <span>$</span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={currentInput}
+                  onChange={(e) => setCurrentInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="flex-1 bg-transparent border-none outline-none text-primary font-mono caret-primary"
+                  autoFocus
+                />
+                <span className="animate-pulse">_</span>
+              </div>
+            )}
+
+            {phase === "complete" && (
+              <div className="flex items-center gap-2 text-primary">
+                <span>$</span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={currentInput}
+                  onChange={(e) => setCurrentInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="flex-1 bg-transparent border-none outline-none text-primary font-mono caret-primary"
+                  autoFocus
+                />
+                <span className="animate-pulse">_</span>
+              </div>
+            )}
+
+            <div ref={terminalEndRef} />
           </div>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground">
-            Portail Étudiant
-          </h1>
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-lg mx-auto">
-            Soumettez vos informations de projet pour validation
-          </p>
         </div>
 
-        {/* Form Card */}
-        <Card className="border-border/50 bg-card/50 backdrop-blur-xl shadow-2xl">
-          <CardHeader>
-            <CardTitle className="text-2xl">Soumettre mon projet</CardTitle>
-            <CardDescription>
-              Entrez votre email, l&apos;URL de votre repository GitHub et l&apos;URL de votre site web déployé.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="votre.email@exemple.com"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                  required
-                  className="bg-input/50 border-border/50 focus:border-primary transition-colors"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="github_url" className="text-sm font-medium">
-                  URL du Repository GitHub
-                </Label>
-                <Input
-                  id="github_url"
-                  type="url"
-                  placeholder="https://github.com/username/repository"
-                  value={formData.github_url}
-                  onChange={(e) =>
-                    setFormData({ ...formData, github_url: e.target.value })
-                  }
-                  required
-                  className="bg-input/50 border-border/50 focus:border-primary transition-colors"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="website_url" className="text-sm font-medium">
-                  URL du Site Web
-                </Label>
-                <Input
-                  id="website_url"
-                  type="url"
-                  placeholder="https://votre-site.com"
-                  value={formData.website_url}
-                  onChange={(e) =>
-                    setFormData({ ...formData, website_url: e.target.value })
-                  }
-                  required
-                  className="bg-input/50 border-border/50 focus:border-primary transition-colors"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-6 text-base transition-all hover:shadow-lg hover:shadow-primary/20"
-              >
-                {isSubmitting ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                    <span>Envoi en cours...</span>
-                  </div>
-                ) : (
-                  "Soumettre"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Footer */}
-        <p className="text-center text-sm text-muted-foreground">
-          Assurez-vous que toutes les informations sont correctes avant de soumettre.
-        </p>
+        {/* Terminal info bar */}
+        <div className="border-2 border-t-0 border-primary bg-black px-6 py-2 flex justify-between items-center text-xs font-mono">
+          <span className="text-muted-foreground">Student Portal Terminal v1.0.0</span>
+          <span className="text-muted-foreground">
+            {phase === "boot" && "BOOTING..."}
+            {phase === "welcome" && "INITIALIZING..."}
+            {phase === "email" && "COLLECTING DATA [1/3]"}
+            {phase === "github" && "COLLECTING DATA [2/3]"}
+            {phase === "website" && "COLLECTING DATA [3/3]"}
+            {phase === "confirm" && "AWAITING CONFIRMATION"}
+            {phase === "submitting" && "SUBMITTING..."}
+            {phase === "complete" && "READY"}
+          </span>
+        </div>
       </div>
     </div>
   );
