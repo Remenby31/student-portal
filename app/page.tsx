@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 export const dynamic = 'force-dynamic';
 
-type TerminalPhase = "boot" | "welcome" | "email" | "github" | "website" | "confirm" | "submitting" | "complete";
+type TerminalPhase = "boot" | "welcome" | "email" | "github" | "website" | "workshop" | "confirm" | "submitting" | "complete";
 
 interface TerminalLine {
   text: string;
@@ -20,7 +20,9 @@ export default function Home() {
     email: "",
     github_url: "",
     website_url: "",
+    workshop: "Workshop 3",
   });
+  const [workshopSelection, setWorkshopSelection] = useState<"Workshop 3" | "Workshop 4">("Workshop 3");
   const inputRef = useRef<HTMLInputElement>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -31,7 +33,10 @@ export default function Home() {
 
   // Auto-focus input
   useEffect(() => {
-    if (phase !== "boot" && phase !== "welcome" && phase !== "submitting" && phase !== "complete") {
+    if (phase !== "boot" && phase !== "welcome" && phase !== "submitting" && phase !== "complete" && phase !== "workshop") {
+      inputRef.current?.focus();
+    } else if (phase === "workshop") {
+      // Focus input for arrow key detection
       inputRef.current?.focus();
     }
   }, [phase]);
@@ -111,7 +116,53 @@ export default function Home() {
     }
   };
 
-  const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Handle arrow keys in workshop phase
+    if (phase === "workshop") {
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const newSelection = workshopSelection === "Workshop 3" ? "Workshop 4" : "Workshop 3";
+        setWorkshopSelection(newSelection);
+
+        // Update the last 3 lines to reflect new selection
+        setLines((prev) => {
+          const newLines = [...prev];
+          const len = newLines.length;
+          if (newSelection === "Workshop 3") {
+            newLines[len - 2] = { text: "  > Workshop 3", type: "success" };
+            newLines[len - 1] = { text: "    Workshop 4", type: "system" };
+          } else {
+            newLines[len - 2] = { text: "    Workshop 3", type: "system" };
+            newLines[len - 1] = { text: "  > Workshop 4", type: "success" };
+          }
+          return newLines;
+        });
+        return;
+      }
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        setFormData((prev) => ({ ...prev, workshop: workshopSelection }));
+        setLines((prev) => [...prev, { text: `✓ ${workshopSelection} sélectionné`, type: "success" }]);
+        setLines((prev) => [...prev, { text: "", type: "system" }]);
+        setLines((prev) => [
+          ...prev,
+          { text: "═══════════════════════════════════════", type: "system" },
+          { text: "RÉCAPITULATIF DES INFORMATIONS", type: "system" },
+          { text: "═══════════════════════════════════════", type: "system" },
+          { text: `Email:        ${formData.email}`, type: "system" },
+          { text: `GitHub:       ${formData.github_url}`, type: "system" },
+          { text: `Site Web:     ${formData.website_url}`, type: "system" },
+          { text: `Workshop:     ${workshopSelection}`, type: "system" },
+          { text: "═══════════════════════════════════════", type: "system" },
+          { text: "", type: "system" },
+          { text: "> Confirmer la soumission? (oui/non):", type: "prompt" },
+        ]);
+        setPhase("confirm");
+        return;
+      }
+    }
+
     if (e.key === "Enter" && currentInput.trim()) {
       e.preventDefault();
 
@@ -145,19 +196,11 @@ export default function Home() {
           setFormData((prev) => ({ ...prev, website_url: currentInput }));
           setLines((prev) => [...prev, { text: "✓ URL site web valide", type: "success" }]);
           setLines((prev) => [...prev, { text: "", type: "system" }]);
-          setLines((prev) => [
-            ...prev,
-            { text: "═══════════════════════════════════════", type: "system" },
-            { text: "RÉCAPITULATIF DES INFORMATIONS", type: "system" },
-            { text: "═══════════════════════════════════════", type: "system" },
-            { text: `Email:        ${formData.email}`, type: "system" },
-            { text: `GitHub:       ${formData.github_url}`, type: "system" },
-            { text: `Site Web:     ${currentInput}`, type: "system" },
-            { text: "═══════════════════════════════════════", type: "system" },
-            { text: "", type: "system" },
-            { text: "> Confirmer la soumission? (oui/non):", type: "prompt" },
-          ]);
-          setPhase("confirm");
+          setLines((prev) => [...prev, { text: "> Sélectionnez votre workshop (utilisez ↑/↓ puis Entrée):", type: "prompt" }]);
+          setLines((prev) => [...prev, { text: "", type: "system" }]);
+          setLines((prev) => [...prev, { text: "  > Workshop 3", type: "success" }]);
+          setLines((prev) => [...prev, { text: "    Workshop 4", type: "system" }]);
+          setPhase("workshop");
         } else {
           setLines((prev) => [...prev, { text: "✗ URL invalide. Réessayez:", type: "error" }]);
         }
@@ -249,7 +292,8 @@ export default function Home() {
       } else if (phase === "complete") {
         // Reset
         setLines([]);
-        setFormData({ email: "", github_url: "", website_url: "" });
+        setFormData({ email: "", github_url: "", website_url: "", workshop: "Workshop 3" });
+        setWorkshopSelection("Workshop 3");
         setCurrentInput("");
         setPhase("boot");
       }
@@ -287,7 +331,7 @@ export default function Home() {
             ))}
 
             {/* Current input line */}
-            {phase !== "boot" && phase !== "welcome" && phase !== "submitting" && phase !== "complete" && (
+            {phase !== "boot" && phase !== "welcome" && phase !== "submitting" && phase !== "complete" && phase !== "workshop" && (
               <div className="flex items-center gap-2 text-primary">
                 <span>$</span>
                 <input
@@ -295,12 +339,25 @@ export default function Home() {
                   type="text"
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   className="flex-1 bg-transparent border-none outline-none text-primary font-mono caret-primary"
                   autoFocus
                 />
                 <span className="animate-pulse">_</span>
               </div>
+            )}
+
+            {/* Workshop selection - hidden input for arrow key detection */}
+            {phase === "workshop" && (
+              <input
+                ref={inputRef}
+                type="text"
+                value=""
+                onChange={() => {}}
+                onKeyDown={handleKeyDown}
+                className="w-0 h-0 opacity-0 absolute"
+                autoFocus
+              />
             )}
 
             {phase === "complete" && (
@@ -311,7 +368,7 @@ export default function Home() {
                   type="text"
                   value={currentInput}
                   onChange={(e) => setCurrentInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   className="flex-1 bg-transparent border-none outline-none text-primary font-mono caret-primary"
                   autoFocus
                 />
@@ -329,9 +386,10 @@ export default function Home() {
           <span className="text-muted-foreground">
             {phase === "boot" && "BOOTING..."}
             {phase === "welcome" && "INITIALIZING..."}
-            {phase === "email" && "COLLECTING DATA [1/3]"}
-            {phase === "github" && "COLLECTING DATA [2/3]"}
-            {phase === "website" && "COLLECTING DATA [3/3]"}
+            {phase === "email" && "COLLECTING DATA [1/4]"}
+            {phase === "github" && "COLLECTING DATA [2/4]"}
+            {phase === "website" && "COLLECTING DATA [3/4]"}
+            {phase === "workshop" && "COLLECTING DATA [4/4]"}
             {phase === "confirm" && "AWAITING CONFIRMATION"}
             {phase === "submitting" && "SUBMITTING..."}
             {phase === "complete" && "READY"}

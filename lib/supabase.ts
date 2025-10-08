@@ -10,5 +10,6 @@ export type StudentSubmission = {
   email: string;
   github_url: string;
   website_url: string;
+  workshop: string;
   created_at: string;
 };
