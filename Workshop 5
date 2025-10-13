@@ -1,0 +1,394 @@
+# Workshop 5 - Mise en place de l'authentification
+
+## 0. Prérequis
+
+👉 **Avant de commencer**
+
+Assurez-vous d'avoir :
+
+- **Le projet du Workshop 4** fonctionnel (éditeur d'images avec IA)
+- **Votre projet déployé sur Vercel** avec les variables d'environnement configurées
+- **Accès à votre projet Supabase** utilisé dans le Workshop 4
+- **VS Code** avec un assistant de code
+
+---
+
+## 1. Modifier la structure de la base de données
+
+👉 **Pourquoi ?**
+
+Actuellement, tous les utilisateurs voient tous les projets. Il faut lier chaque projet à un utilisateur pour que chacun ne voie que ses propres créations.
+
+### Ajouter la colonne user_id
+
+1. Aller dans **SQL Editor** de Supabase.
+2. Exécuter cette commande :
+
+```sql
+-- Ajouter la colonne user_id
+ALTER TABLE projects 
+ADD COLUMN user_id UUID REFERENCES auth.users(id);
+
+-- Créer un index pour améliorer les performances
+CREATE INDEX idx_projects_user_id ON projects(user_id);
+```
+
+### Activer Row Level Security (RLS)
+
+👉 **Qu'est-ce que c'est ?**
+
+La RLS (Row Level Security) est un système de sécurité au niveau de la base de données. Elle permet de définir des règles qui contrôlent quelles lignes (rows) chaque utilisateur peut voir, créer, modifier ou supprimer. 
+
+Concrètement : même si quelqu'un essaie de pirater votre API, la base de données bloquera automatiquement l'accès aux données qui ne lui appartiennent pas.
+
+### Les étapes
+
+1. Dans **SQL Editor** de Supabase, exécuter cette commande pour activer la RLS :
+
+```sql
+-- Activer Row Level Security sur la table projects
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+```
+
+2. Maintenant, créer les **policies** (règles de sécurité). Exécuter ces commandes **une par une** :
+
+**Policy 1 : Voir ses propres projets**
+
+```sql
+-- Un utilisateur peut voir uniquement ses projets
+CREATE POLICY "Users can view own projects"
+ON projects 
+FOR SELECT
+USING (auth.uid() = user_id);
+```
+
+💡 **Explication** : 
+- `FOR SELECT` = cette règle s'applique quand on lit des données
+- `USING (auth.uid() = user_id)` = l'utilisateur connecté (`auth.uid()`) doit correspondre au `user_id` du projet
+- Si la condition est fausse, la ligne n'est pas retournée
+
+**Policy 2 : Créer uniquement avec son propre user_id**
+
+```sql
+-- Un utilisateur peut créer un projet uniquement avec son user_id
+CREATE POLICY "Users can insert own projects"
+ON projects 
+FOR INSERT
+WITH CHECK (auth.uid() = user_id);
+```
+
+💡 **Explication** :
+- `FOR INSERT` = cette règle s'applique quand on crée une nouvelle ligne
+- `WITH CHECK (auth.uid() = user_id)` = vérifie que le `user_id` inséré correspond bien à l'utilisateur connecté
+- Si quelqu'un essaie d'insérer un projet avec le `user_id` d'un autre, ça sera bloqué
+
+**Policy 3 : Supprimer uniquement ses propres projets**
+
+```sql
+-- Un utilisateur peut supprimer uniquement ses projets
+CREATE POLICY "Users can delete own projects"
+ON projects 
+FOR DELETE
+USING (auth.uid() = user_id);
+```
+
+💡 **Explication** :
+- `FOR DELETE` = cette règle s'applique quand on supprime une ligne
+- `USING (auth.uid() = user_id)` = l'utilisateur ne peut supprimer que les projets où il est propriétaire
+- Impossible de supprimer les projets des autres utilisateurs
+
+### Vérifier que ça fonctionne
+
+1. Aller dans **Authentication** → **Policies** de Supabase
+2. Sélectionner la table `projects`
+3. Vous devriez voir vos 3 policies listées :
+   - ✅ Users can view own projects
+   - ✅ Users can insert own projects
+   - ✅ Users can delete own projects
+
+👉 Résultat : la base de données est sécurisée, chaque utilisateur est isolé 🔒
+
+---
+
+## 2. Créer l'interface d'authentification complète
+
+👉 **Pourquoi ?**
+
+Plutôt que de créer chaque fichier un par un, on va demander à l'assistant de code de créer toute l'infrastructure d'authentification en une seule fois. Les assistants modernes sont capables de comprendre l'architecture complète et de créer tous les fichiers nécessaires.
+
+### Prompt complet pour l'assistant de code
+
+```
+Ajoute l'authentification email/mot de passe à mon projet Next.js avec Supabase.
+
+CONTEXTE :
+- Supabase configuré, table projects avec user_id (UUID), RLS activée avec policies
+
+CE QUE JE VEUX :
+- AuthContext avec hook useAuth() qui écoute auth.onAuthStateChange()
+- Composant AuthForm avec onglets connexion/inscription + validation
+- Header qui affiche email + bouton déconnexion si connecté
+- Pages /login et /signup avec AuthForm
+- Page /dashboard protégée : formulaire upload + galerie "Mes projets" (fetch projects WHERE user_id = auth.uid())
+- API generate qui vérifie l'auth et ajoute user_id lors de l'INSERT
+- API delete pour supprimer projets (avec suppression des images des buckets)
+- middleware.ts pour protéger /dashboard et les routes /api
+- Landing page / avec CTA vers /signup
+
+Installe @supabase/auth-helpers-nextjs si besoin. Crée tous les fichiers et explique-moi ce qui a été fait.
+```
+
+### Concepts clés
+
+💡 **Context d'authentification** : Un Context React permet de partager l'état de l'utilisateur connecté dans toute l'application sans avoir à passer des props partout. Le hook `useAuth()` donnera accès à l'utilisateur courant depuis n'importe quel composant.
+
+Exemple d'utilisation :
+```tsx
+// Dans n'importe quel composant
+const { user, loading } = useAuth()
+
+if (loading) return <div>Chargement...</div>
+if (!user) return <div>Non connecté</div>
+return <div>Bienvenue {user.email}</div>
+```
+
+💡 **Middleware** : Un fichier spécial de Next.js qui s'exécute **avant** chaque requête. Il vérifie si l'utilisateur est connecté et bloque l'accès aux pages protégées (/dashboard, /api/generate, etc.) en redirigeant vers /login si nécessaire. C'est la première ligne de défense de votre application.
+
+Exemple de flux :
+```
+Utilisateur essaie d'aller sur /dashboard
+    ↓
+Middleware s'exécute
+    ↓
+Est-il connecté ?
+    ├─ Oui → Accès autorisé ✅
+    └─ Non → Redirection vers /login ❌
+```
+
+Exemple de configuration :
+```tsx
+// middleware.ts
+export const config = {
+  matcher: ['/dashboard/:path*', '/api/generate/:path*', '/api/delete/:path*']
+}
+
+// Résultat :
+// ✅ Accessible sans login : /, /login, /signup
+// 🔒 Protégé (login requis) : /dashboard, /api/generate, /api/delete
+```
+
+### Ce que l'assistant va créer
+
+L'assistant devrait créer/modifier :
+- ✅ Le Context d'authentification (`context/AuthContext.tsx`)
+- ✅ Le composant de formulaire (`components/AuthForm.tsx`)
+- ✅ Le Header (`components/Header.tsx`)
+- ✅ Les pages login et signup
+- ✅ La page dashboard avec galerie
+- ✅ L'API delete
+- ✅ La modification de l'API generate
+- ✅ Le middleware de protection (`middleware.ts`)
+- ✅ La modification de la page d'accueil
+- ✅ La mise à jour de `app/layout.tsx`
+
+---
+
+## 3. Tester l'authentification complète
+
+👉 **Pourquoi ?**
+
+Maintenant que tout le code est en place, on va tester le parcours complet d'un utilisateur pour vérifier que tout fonctionne ensemble.
+
+### Étapes de test
+
+1. **Lancer le serveur** :
+```bash
+npm run dev
+```
+
+2. **Page d'accueil** (`http://localhost:3000/`) :
+   - ✅ Vérifier que la landing page s'affiche
+   - ✅ Vérifier que le Header affiche "Se connecter"
+   - ✅ Cliquer sur "Commencer gratuitement" → doit rediriger vers `/signup`
+
+3. **Créer un compte** (`/signup`) :
+   - ✅ Remplir : email `test@example.com`, mot de passe `password123`, confirmation `password123`
+   - ✅ Cliquer sur "S'inscrire"
+   - ✅ Vérifier le message de succès
+   - ✅ Vous devriez être redirigé vers `/login`
+
+4. **Se connecter** (`/login`) :
+   - ✅ Entrer les mêmes identifiants
+   - ✅ Cliquer sur "Se connecter"
+   - ✅ Vous devriez être redirigé vers `/dashboard`
+   - ✅ Vérifier que le Header affiche votre email
+
+5. **Vérifier dans Supabase** :
+   - ✅ Aller sur Supabase → **Authentication** → **Users**
+   - ✅ Vous devriez voir `test@example.com` dans la liste
+
+6. **Générer un projet** (sur `/dashboard`) :
+   - ✅ Uploader une image
+   - ✅ Écrire un prompt (ex: "add sunglasses")
+   - ✅ Cliquer sur "Générer"
+   - ✅ Attendre quelques secondes ⏳
+   - ✅ L'image générée doit s'afficher
+
+7. **Vérifier le projet dans Supabase** :
+   - ✅ Aller dans **Table Editor** → `projects`
+   - ✅ La dernière ligne doit avoir :
+     - `input_image_url`
+     - `output_image_url`
+     - `prompt`
+     - `user_id` (votre UUID)
+     - `status: completed`
+
+8. **Recharger le dashboard** :
+   - ✅ F5 ou recharger la page
+   - ✅ Le projet doit apparaître dans "Mes projets"
+
+9. **Supprimer le projet** :
+   - ✅ Cliquer sur "Supprimer"
+   - ✅ Confirmer
+   - ✅ Le projet disparaît immédiatement
+   - ✅ Vérifier dans Supabase que la ligne et les images sont supprimées
+
+10. **Se déconnecter** :
+    - ✅ Cliquer sur "Se déconnecter" dans le Header
+    - ✅ Retour sur la page d'accueil
+    - ✅ Le Header affiche maintenant "Se connecter"
+
+11. **Tester la protection des routes** :
+    - ✅ Essayer d'aller sur `/dashboard` sans être connecté
+    - ✅ Vous devez être redirigé vers `/login`
+
+12. **Tester avec un second utilisateur** :
+    - ✅ Créer un compte : `user2@example.com` / `password123`
+    - ✅ Se connecter
+    - ✅ Générer un projet
+    - ✅ Se déconnecter
+    - ✅ Se reconnecter avec `test@example.com`
+    - ✅ Vérifier que vous ne voyez PAS les projets de `user2@example.com`
+
+👉 Si tous les tests passent, l'authentification par email/mot de passe est complète ! 🎉
+
+### En cas d'erreur
+
+Si quelque chose ne fonctionne pas :
+
+1. **Vérifier les logs du terminal** pour voir les erreurs
+2. **Vérifier la console du navigateur** (F12 → Console)
+3. **Demander à l'assistant de corriger** en lui copiant le message d'erreur complet
+4. **Vérifier dans Supabase** :
+   - Les utilisateurs sont-ils créés dans **Authentication** ?
+   - Les projets ont-ils un `user_id` dans la table ?
+   - Les policies RLS sont-elles actives ?
+
+---
+
+## 4. Déployer sur Vercel
+
+👉 **Pourquoi ?**
+
+Maintenant que tout fonctionne en local, on sauvegarde et on déploie en production.
+
+### Étapes
+
+1. **Commit et push** :
+   ```bash
+   # Dans VS Code, onglet Source Control
+   # Message : "Add email/password authentication"
+   # Commit → Push
+   ```
+
+   💡 **Si erreur de connexion GitHub** :
+   - Installer [GitHub Desktop](https://desktop.github.com/download/)
+   - Cela vous connectera automatiquement à GitHub
+   - Réessayer le commit et push dans VS Code
+
+2. **Déploiement automatique** :
+   - Aller sur [Vercel](https://vercel.com/)
+   - Le déploiement se lance automatiquement
+   - Attendre quelques minutes ⏳
+
+3. **Tester en production** :
+   - Cliquer sur **Visit**
+   - Refaire tout le parcours de test
+   - Créer un compte, générer une image, supprimer, se déconnecter
+
+👉 Si tout fonctionne en production, l'authentification est complète ! 🎉
+
+---
+
+## 5. Configurer Google OAuth (optionnel)
+
+Vous pouvez ajouter Google OAuth pour permettre une connexion en un clic.
+
+### Étape 1 : Créer un projet Google Cloud
+
+1. Aller sur [Google Cloud Console](https://console.cloud.google.com/)
+2. Créer un nouveau projet ou sélectionner un projet existant
+3. Aller dans **API & Services** → **Credentials**
+4. Cliquer sur **Create Credentials** → **OAuth client ID**
+5. Si demandé, configurer l'écran de consentement OAuth :
+   - User Type : **External**
+   - App name : nom de votre projet
+   - User support email : votre email
+   - Developer contact : votre email
+   - Sauvegarder et continuer
+6. Revenir à **Credentials** → **Create Credentials** → **OAuth client ID**
+7. Application type : **Web application**
+8. Name : "Supabase Auth"
+9. Authorized redirect URIs :
+   - Aller dans Supabase → **Authentication** → **Providers** → **Google**
+   - Copier le **Callback URL** (format: `https://xxx.supabase.co/auth/v1/callback`)
+   - Coller dans Google Cloud Console
+10. Cliquer sur **Create**
+11. **Copier** le Client ID et Client Secret
+
+### Étape 2 : Configurer Supabase
+
+1. Dans Supabase → **Authentication** → **Providers**
+2. Activer **Google**
+3. Coller le **Client ID** et **Client Secret**
+4. Sauvegarder
+
+### Étape 3 : Ajouter le bouton Google
+
+Demander à l'assistant de code :
+
+```
+Ajoute un bouton Google OAuth (via supabase) dans components/AuthForm.tsx.
+
+Le bouton doit :
+- Être placé avant le formulaire email/password
+- Utiliser supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/dashboard` } })
+```
+
+### Étape 4 : Tester Google OAuth
+
+1. Lancer le serveur : `npm run dev`
+2. Aller sur `/login` ou `/signup`
+3. Cliquer sur **Continuer avec Google**
+4. Sélectionner votre compte Google
+5. Autoriser l'application
+6. Vous devriez être redirigé vers `/dashboard` et connecté
+7. Vérifier dans Supabase → **Authentication** → **Users** que l'utilisateur est créé
+
+---
+
+## Ressources
+
+📚 **Documentation Supabase Auth** : https://supabase.com/docs/guides/auth
+
+📚 **Row Level Security** : https://supabase.com/docs/guides/auth/row-level-security
+
+📚 **Supabase Auth avec Next.js** : https://supabase.com/docs/guides/auth/server-side/nextjs
+
+📚 **Google OAuth Setup** : https://supabase.com/docs/guides/auth/social-login/auth-google
+
+📚 **Next.js Middleware** : https://nextjs.org/docs/app/building-your-application/routing/middleware
+
+---
+
+🎉 **Bravo !** Votre SaaS a maintenant une authentification complète, un dashboard sécurisé, et chaque utilisateur a ses propres données isolées !

@@ -22,7 +22,7 @@ export default function Home() {
     website_url: "",
     workshop: "Workshop 3",
   });
-  const [workshopSelection, setWorkshopSelection] = useState<"Workshop 3" | "Workshop 4">("Workshop 3");
+  const [workshopSelection, setWorkshopSelection] = useState<"Workshop 3" | "Workshop 4 & 5">("Workshop 3");
   const inputRef = useRef<HTMLInputElement>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -121,7 +121,7 @@ export default function Home() {
     if (phase === "workshop") {
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
-        const newSelection = workshopSelection === "Workshop 3" ? "Workshop 4" : "Workshop 3";
+        const newSelection = workshopSelection === "Workshop 3" ? "Workshop 4 & 5" : "Workshop 3";
         setWorkshopSelection(newSelection);
 
         // Update the last 3 lines to reflect new selection
@@ -130,10 +130,10 @@ export default function Home() {
           const len = newLines.length;
           if (newSelection === "Workshop 3") {
             newLines[len - 2] = { text: "  > Workshop 3", type: "success" };
-            newLines[len - 1] = { text: "    Workshop 4", type: "system" };
+            newLines[len - 1] = { text: "    Workshop 4 & 5", type: "system" };
           } else {
             newLines[len - 2] = { text: "    Workshop 3", type: "system" };
-            newLines[len - 1] = { text: "  > Workshop 4", type: "success" };
+            newLines[len - 1] = { text: "  > Workshop 4 & 5", type: "success" };
           }
           return newLines;
         });
@@ -199,7 +199,7 @@ export default function Home() {
           setLines((prev) => [...prev, { text: "> Sélectionnez votre workshop (utilisez ↑/↓ puis Entrée):", type: "prompt" }]);
           setLines((prev) => [...prev, { text: "", type: "system" }]);
           setLines((prev) => [...prev, { text: "  > Workshop 3", type: "success" }]);
-          setLines((prev) => [...prev, { text: "    Workshop 4", type: "system" }]);
+          setLines((prev) => [...prev, { text: "    Workshop 4 & 5", type: "system" }]);
           setPhase("workshop");
         } else {
           setLines((prev) => [...prev, { text: "✗ URL invalide. Réessayez:", type: "error" }]);
