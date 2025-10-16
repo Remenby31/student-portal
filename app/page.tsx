@@ -22,7 +22,7 @@ export default function Home() {
     website_url: "",
     workshop: "Workshop 3",
   });
-  const [workshopSelection, setWorkshopSelection] = useState<"Workshop 3" | "Workshop 4 & 5">("Workshop 3");
+  const [workshopSelection, setWorkshopSelection] = useState<"Workshop 3" | "Workshop 4 & 5" | "Workshop 6">("Workshop 3");
   const inputRef = useRef<HTMLInputElement>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -121,20 +121,35 @@ export default function Home() {
     if (phase === "workshop") {
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
-        const newSelection = workshopSelection === "Workshop 3" ? "Workshop 4 & 5" : "Workshop 3";
+        const workshops = ["Workshop 3", "Workshop 4 & 5", "Workshop 6"] as const;
+        const currentIndex = workshops.indexOf(workshopSelection);
+        let newIndex: number;
+
+        if (e.key === "ArrowDown") {
+          newIndex = (currentIndex + 1) % workshops.length;
+        } else {
+          newIndex = (currentIndex - 1 + workshops.length) % workshops.length;
+        }
+
+        const newSelection = workshops[newIndex];
         setWorkshopSelection(newSelection);
 
-        // Update the last 3 lines to reflect new selection
+        // Update the last 4 lines to reflect new selection
         setLines((prev) => {
           const newLines = [...prev];
           const len = newLines.length;
-          if (newSelection === "Workshop 3") {
-            newLines[len - 2] = { text: "  > Workshop 3", type: "success" };
-            newLines[len - 1] = { text: "    Workshop 4 & 5", type: "system" };
-          } else {
-            newLines[len - 2] = { text: "    Workshop 3", type: "system" };
-            newLines[len - 1] = { text: "  > Workshop 4 & 5", type: "success" };
-          }
+          newLines[len - 3] = {
+            text: newSelection === "Workshop 3" ? "  > Workshop 3" : "    Workshop 3",
+            type: newSelection === "Workshop 3" ? "success" : "system"
+          };
+          newLines[len - 2] = {
+            text: newSelection === "Workshop 4 & 5" ? "  > Workshop 4 & 5" : "    Workshop 4 & 5",
+            type: newSelection === "Workshop 4 & 5" ? "success" : "system"
+          };
+          newLines[len - 1] = {
+            text: newSelection === "Workshop 6" ? "  > Workshop 6" : "    Workshop 6",
+            type: newSelection === "Workshop 6" ? "success" : "system"
+          };
           return newLines;
         });
         return;
@@ -200,6 +215,7 @@ export default function Home() {
           setLines((prev) => [...prev, { text: "", type: "system" }]);
           setLines((prev) => [...prev, { text: "  > Workshop 3", type: "success" }]);
           setLines((prev) => [...prev, { text: "    Workshop 4 & 5", type: "system" }]);
+          setLines((prev) => [...prev, { text: "    Workshop 6", type: "system" }]);
           setPhase("workshop");
         } else {
           setLines((prev) => [...prev, { text: "✗ URL invalide. Réessayez:", type: "error" }]);
